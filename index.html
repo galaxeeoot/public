@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Space War</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #030712;
+      --panel: #0f172a;
+      --text: #e2e8f0;
+      --accent: #22d3ee;
+      --danger: #fb7185;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, system-ui, Arial, sans-serif;
+      color: var(--text);
+      background: radial-gradient(circle at 50% 10%, #111827 0%, var(--bg) 45%);
+      display: grid;
+      place-items: center;
+      padding: 16px;
+    }
+    .wrapper { width: min(840px, 100%); }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 10px 14px;
+    }
+    .hud { display: flex; gap: 18px; font-weight: 700; }
+    .help { font-size: 0.9rem; color: #94a3b8; }
+    canvas {
+      width: 100%;
+      aspect-ratio: 16/9;
+      background: #020617;
+      border-radius: 12px;
+      border: 1px solid #1e293b;
+      display: block;
+      box-shadow: 0 20px 45px rgba(0,0,0,0.45);
+    }
+  </style>
+</head>
+<body>
+  <main class="wrapper">
+    <section class="topbar">
+      <div class="hud">
+        <span>Score: <strong id="score">0</strong></span>
+        <span>Liv: <strong id="lives">3</strong></span>
+        <span>Level: <strong id="level">1</strong></span>
+      </div>
+      <div class="help">A/D eller ←/→ flytt · Space skyt · R restart</div>
+    </section>
+    <canvas id="game" width="960" height="540"></canvas>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const livesEl = document.getElementById('lives');
+    const levelEl = document.getElementById('level');
+
+    const state = {
+      keys: new Set(),
+      score: 0,
+      lives: 3,
+      level: 1,
+      gameOver: false,
+      stars: Array.from({ length: 120 }, () => ({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        speed: Math.random() * 0.8 + 0.2,
+        size: Math.random() * 2 + 0.5,
+      })),
+    };
+
+    const player = {
+      x: canvas.width / 2,
+      y: canvas.height - 60,
+      w: 36,
+      h: 26,
+      speed: 6,
+      cooldown: 0,
+      bullets: [],
+    };
+
+    let enemies = [];
+    let enemyBullets = [];
+
+    function spawnWave() {
+      enemies = [];
+      const rows = Math.min(3 + state.level, 7);
+      const cols = 8;
+      const gapX = 84;
+      const gapY = 56;
+      const startX = canvas.width / 2 - ((cols - 1) * gapX) / 2;
+      const startY = 60;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          enemies.push({
+            x: startX + c * gapX,
+            y: startY + r * gapY,
+            w: 30,
+            h: 22,
+            alive: true,
+            wiggle: Math.random() * Math.PI * 2,
+          });
+        }
+      }
+    }
+
+    function resetGame() {
+      state.score = 0;
+      state.lives = 3;
+      state.level = 1;
+      state.gameOver = false;
+      player.x = canvas.width / 2;
+      player.bullets = [];
+      enemyBullets = [];
+      spawnWave();
+      updateHud();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = state.score;
+      livesEl.textContent = state.lives;
+      levelEl.textContent = state.level;
+    }
+
+    function rectHit(a, b) {
+      return (
+        a.x < b.x + b.w &&
+        a.x + a.w > b.x &&
+        a.y < b.y + b.h &&
+        a.y + a.h > b.y
+      );
+    }
+
+    function update() {
+      if (state.gameOver) return;
+
+      if (state.keys.has('ArrowLeft') || state.keys.has('a')) player.x -= player.speed;
+      if (state.keys.has('ArrowRight') || state.keys.has('d')) player.x += player.speed;
+      player.x = Math.max(player.w / 2, Math.min(canvas.width - player.w / 2, player.x));
+
+      if (player.cooldown > 0) player.cooldown--;
+      if (state.keys.has(' ') && player.cooldown === 0) {
+        player.bullets.push({ x: player.x - 2, y: player.y - player.h / 2, w: 4, h: 12, speed: 9 });
+        player.cooldown = 10;
+      }
+
+      player.bullets.forEach((b) => b.y -= b.speed);
+      player.bullets = player.bullets.filter((b) => b.y > -20);
+
+      const aliveEnemies = enemies.filter((e) => e.alive);
+      aliveEnemies.forEach((e, i) => {
+        e.x += Math.sin(performance.now() / 400 + e.wiggle) * 0.35;
+        e.y += Math.sin(performance.now() / 650 + i) * 0.08;
+        if (Math.random() < 0.0015 + state.level * 0.0004) {
+          enemyBullets.push({ x: e.x + e.w / 2 - 2, y: e.y + e.h, w: 4, h: 12, speed: 4 + state.level * 0.25 });
+        }
+      });
+
+      enemyBullets.forEach((b) => b.y += b.speed);
+      enemyBullets = enemyBullets.filter((b) => b.y < canvas.height + 24);
+
+      for (const bullet of player.bullets) {
+        for (const enemy of enemies) {
+          if (enemy.alive && rectHit(bullet, enemy)) {
+            enemy.alive = false;
+            bullet.y = -100;
+            state.score += 10;
+          }
+        }
+      }
+
+      const playerRect = { x: player.x - player.w / 2, y: player.y - player.h / 2, w: player.w, h: player.h };
+      for (const b of enemyBullets) {
+        if (rectHit(b, playerRect)) {
+          b.y = canvas.height + 100;
+          state.lives--;
+          if (state.lives <= 0) state.gameOver = true;
+        }
+      }
+
+      if (enemies.every((e) => !e.alive)) {
+        state.level++;
+        spawnWave();
+      }
+
+      updateHud();
+    }
+
+    function drawShip() {
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      ctx.fillStyle = '#67e8f9';
+      ctx.beginPath();
+      ctx.moveTo(0, -16);
+      ctx.lineTo(14, 12);
+      ctx.lineTo(0, 6);
+      ctx.lineTo(-14, 12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#cffafe';
+      ctx.fillRect(-3, -5, 6, 11);
+      ctx.restore();
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      state.stars.forEach((s) => {
+        s.y += s.speed;
+        if (s.y > canvas.height) {
+          s.y = 0;
+          s.x = Math.random() * canvas.width;
+        }
+        ctx.fillStyle = '#e2e8f0';
+        ctx.globalAlpha = 0.65;
+        ctx.fillRect(s.x, s.y, s.size, s.size);
+      });
+      ctx.globalAlpha = 1;
+
+      drawShip();
+
+      ctx.fillStyle = '#22d3ee';
+      player.bullets.forEach((b) => ctx.fillRect(b.x, b.y, b.w, b.h));
+
+      ctx.fillStyle = '#f43f5e';
+      enemyBullets.forEach((b) => ctx.fillRect(b.x, b.y, b.w, b.h));
+
+      enemies.forEach((e) => {
+        if (!e.alive) return;
+        ctx.fillStyle = '#fb7185';
+        ctx.fillRect(e.x, e.y, e.w, e.h);
+        ctx.fillStyle = '#fecdd3';
+        ctx.fillRect(e.x + 4, e.y + 5, 6, 6);
+        ctx.fillRect(e.x + e.w - 10, e.y + 5, 6, 6);
+      });
+
+      if (state.gameOver) {
+        ctx.fillStyle = 'rgba(2,6,23,0.7)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#f8fafc';
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 56px system-ui';
+        ctx.fillText('Game Over', canvas.width / 2, canvas.height / 2 - 20);
+        ctx.font = '24px system-ui';
+        ctx.fillText('Trykk R for å starte på nytt', canvas.width / 2, canvas.height / 2 + 30);
+      }
+    }
+
+    function tick() {
+      update();
+      draw();
+      requestAnimationFrame(tick);
+    }
+
+    window.addEventListener('keydown', (e) => {
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      state.keys.add(key);
+      if (e.code === 'Space') e.preventDefault();
+      if ((key === 'r') && state.gameOver) resetGame();
+    });
+
+    window.addEventListener('keyup', (e) => {
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      state.keys.delete(key);
+    });
+
+    resetGame();
+    tick();
+  </script>
+</body>
+</html>
